@@ -41,10 +41,41 @@ class VAE_Encoder(nn.Sequential):
             nn.GroupNorm(32, 512),
             # (Batch_size, 512, Height/8, Width/8) -> (Batch_size, 512, Height/8, Width/8)
             nn.SiLU(),
-
-            # (Batch_size, 512, Height/8, Width/8) -> (Batch_size, 512, Height/8, Width/8)
+            # (Batch_size, 512, Height/8, Width/8) -> (Batch_size, 8, Height/8, Width/8)
             nn.Conv2d(512, 8, kernel_size=3, padding=1),
-
+            # (Batch_size 8, Height/8, Width/8 ) -> (Batch_size, 8, Height/8, Width/8)
             nn.Conv2d(8, 8, kernel_size=1, padding=0),
 
         )
+
+    
+
+    def forward(self, x: torch.Tensor, noise: torch.Tensor) -> torch.Tensor:
+        # x: (Batch size, Channel, Height, Width)
+        # noise: (Batch size, Out Channels, Height/8, Width/8)
+
+        for module in self:
+            if getattr(module, 'stride', None) == (2,2):
+                x = F.pad(x, (0,1,0,1))
+            x = module(x)
+
+        # (Batch size, 8, Height/8, Width/8)   => two tensors of shape (Batch size, 4, Height/8, Width/8)
+        mean, log_variance = torch.chunk(x, 2, dim=1)
+        # (Batch size, 4, Height/8, Width/8) => (Batch size, 4, Height/8, Width/8)
+        log_variance = torch.clamp(log_variance, -30, 20)
+        # (Batch size, 4, Height/8, Width/8) => (Batch size, 4, Height/8, Width/8)
+        variance = log_variance.exp()
+        # (Batch size, 4, Height/8, Width/8) => (Batch size, 4, Height/8, Width/8)
+        stdev = variance.sqrt()
+
+        # z = N(0,1) -> x = N(mean, variance)?
+        x = mean + stdev * noise 
+
+        x *= 0.18215
+
+        return x
+
+
+
+
+ 
